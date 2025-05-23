@@ -1,0 +1,556 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>彈彈的愛上遊戲系統</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #e0e7ff 0%, #a5b4fc 50%, #818cf8 100%);
+      animation: gradientShift 10s infinite alternate;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      font-family: 'Noto Sans TC', sans-serif;
+      overflow: hidden;
+    }
+    @keyframes gradientShift {
+      0% { background-position: 0% 0%; }
+      100% { background-position: 100% 100%; }
+    }
+    h1 {
+      font-size: 3.5rem;
+      color: #1e40af;
+      text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.4);
+      margin-bottom: 2rem;
+      text-align: center;
+      animation: fadeIn 1.5s ease-in-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    canvas {
+      border: 6px solid #1e3a8a;
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.3);
+      background-color: #f3f4f6;
+      transition: transform 0.2s ease;
+    }
+    canvas:hover {
+      transform: scale(1.02);
+    }
+    .game-ui {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 1rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      font-size: 1.25rem;
+      color: #1f2937;
+      text-align: right;
+    }
+    .game-over, .game-win, .game-lose {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(220, 38, 38, 0.9);
+      color: white;
+      padding: 2rem 3rem;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      text-align: center;
+      font-size: 2rem;
+      animation: popUp 0.5s ease-out;
+      display: none;
+    }
+    .game-win { background: rgba(34, 197, 94, 0.9); }
+    .game-lose { background: rgba(220, 38, 38, 0.9); }
+    @keyframes popUp {
+      from { opacity: 0; transform: translate(-50%, -60%) scale(0.8); }
+      to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+    .restart-button, .next-button {
+      margin-top: 1.5rem;
+      padding: 0.75rem 1.5rem;
+      font-size: 1.25rem;
+      color: white;
+      background-color: #3b82f6;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    .restart-button:hover, .next-button:hover {
+      background-color: #2563eb;
+    }
+    .instructions {
+      margin-top: 1.5rem;
+      padding: 1.5rem;
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 10px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+      font-size: 1.25rem;
+      color: #1f2937;
+      text-align: center;
+      max-width: 650px;
+    }
+    .instructions span {
+      background-color: #3b82f6;
+      color: white;
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>彈彈的愛上遊戲系統</h1>
+  <canvas id="gameCanvas" width="650" height="550"></canvas>
+  <div id="gameUI" class="game-ui">分數: <span id="score">0</span> | 關卡: <span id="level">1</span></div>
+  <div id="gameOver" class="game-over">遊戲結束！<br>你的分數: <span id="finalScore"></span><br><button class="restart-button" onclick="restartGame()">重新開始</button></div>
+  <div id="gameWin" class="game-win">恭喜過關！<br>你的分數: <span id="finalScoreWin"></span><br><button class="next-button" onclick="nextLevel()">下一關</button></div>
+  <div id="gameLose" class="game-lose">失敗！綠色寶石被炸毀<br>你的分數: <span id="finalScoreLose"></span><br><button class="restart-button" onclick="restartGame()">重新開始</button></div>
+  <div class="instructions">
+    使用 <span>WASD</span> 或 <span>方向鍵</span> 移動角色，按 <span>空白鍵</span> 放置炸彈！<br>
+    摧毀障礙物或敵人得分，碰到敵人或炸到自己結束遊戲。<br>
+    收集綠色寶石過關，炸毀綠色寶石失敗！
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const gameUI = document.getElementById('gameUI');
+    const scoreElement = document.getElementById('score');
+    const levelElement = document.getElementById('level');
+    const gameOver = document.getElementById('gameOver');
+    const gameWin = document.getElementById('gameWin');
+    const gameLose = document.getElementById('gameLose');
+    const finalScore = document.getElementById('finalScore');
+    const finalScoreWin = document.getElementById('finalScoreWin');
+    const finalScoreLose = document.getElementById('finalScoreLose');
+
+    // 遊戲參數
+    const GRID_SIZE = 50;
+    const ROWS = 11;
+    const COLS = 13;
+    const WALL = 1;
+    const BRICK = 2;
+    const EMPTY = 0;
+    const BOMB = 3;
+    const EXPLOSION = 4;
+    const GEM = 5; // 綠色寶石
+    const ENEMY = 6;
+
+    // 載入炸彈圖片
+    const bombImage = new Image();
+    bombImage.src = 'image/bomb.png';
+    bombImage.onload = () => console.log('炸彈圖片載入成功: image/bomb.png');
+    bombImage.onerror = () => console.log('炸彈圖片載入失敗: image/bomb.png');
+
+    // 關卡定義（確保玩家出生 2x2 區域無障礙物）
+    const levels = [
+      [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,2,2,2,2,2,2,2,0,0,1],
+        [1,0,1,2,1,2,1,2,1,2,2,0,1],
+        [1,2,2,0,2,0,2,0,2,0,2,0,1],
+        [1,0,1,2,1,2,1,2,1,2,1,2,1],
+        [1,2,2,0,2,0,2,0,2,0,2,0,1],
+        [1,0,1,2,1,2,1,2,1,2,2,0,1],
+        [1,2,2,0,2,0,2,0,2,0,2,0,1],
+        [1,2,1,2,1,2,1,2,1,2,0,0,1],
+        [1,0,2,2,2,2,2,2,2,2,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1]
+      ],
+      [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,2,2,2,2,2,2,0,0,0,1],
+        [1,0,1,2,1,2,1,2,1,2,2,0,1],
+        [1,0,2,0,2,0,2,0,2,0,2,0,1],
+        [1,2,1,2,1,5,1,2,1,2,1,2,1],
+        [1,0,2,0,2,0,2,0,2,0,2,0,1],
+        [1,2,1,2,1,2,1,2,1,2,2,0,1],
+        [1,0,2,0,2,0,2,0,2,0,2,0,1],
+        [1,2,1,2,1,2,1,2,1,2,0,0,1],
+        [1,0,0,2,2,2,2,2,2,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1]
+      ],
+      [
+        [1,1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,0,2,0,0,0,2,2,0,0,0,1],
+        [1,0,1,2,2,2,2,2,1,2,2,0,1],
+        [1,0,2,0,2,0,2,0,2,0,2,0,1],
+        [1,2,1,2,1,5,1,2,1,2,1,2,1],
+        [1,0,2,0,2,0,2,0,2,0,2,0,1],
+        [1,2,1,2,2,2,2,2,1,2,2,0,1],
+        [1,0,2,2,0,0,0,2,2,0,0,0,1],
+        [1,2,1,2,1,2,1,2,1,2,0,0,1],
+        [1,0,0,2,2,2,2,2,2,0,0,0,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1,1]
+      ]
+    ];
+
+    // 遊戲狀態
+    let map = levels[0];
+    let player = { x: 1, y: 1, size: GRID_SIZE - 10 };
+    let bombs = [];
+    let explosions = [];
+    let enemies = [];
+    let score = 0;
+    let level = 0;
+    let gameRunning = true;
+    let gemCollected = false;
+    let lastEnemyMove = 0;
+    const ENEMY_MOVE_INTERVAL = 1000; // 敵人移動間隔（毫秒）
+
+    // 初始化敵人
+    function initEnemies() {
+      enemies = [];
+      for (let i = 0; i < 3; i++) {
+        let x, y;
+        do {
+          x = Math.floor(Math.random() * (COLS - 2)) + 1;
+          y = Math.floor(Math.random() * (ROWS - 2)) + 1;
+        } while (map[y][x] !== EMPTY || (x === player.x && y === player.y) || (x <= 2 && y <= 2));
+        enemies.push({ x, y });
+      }
+    }
+
+    // 繪製地圖
+    function drawMap() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < ROWS; i++) {
+        for (let j = 0; j < COLS; j++) {
+          if (map[i][j] === WALL) {
+            ctx.fillStyle = '#4b5563';
+            ctx.fillRect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+            ctx.strokeStyle = '#1f2937';
+            ctx.strokeRect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+          } else if (map[i][j] === BRICK) {
+            ctx.fillStyle = '#7f1d1d';
+            ctx.fillRect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+            ctx.strokeStyle = '#991b1b';
+            ctx.strokeRect(j * GRID_SIZE + 5, i * GRID_SIZE + 5, GRID_SIZE - 10, GRID_SIZE - 10);
+          } else if (map[i][j] === GEM) {
+            ctx.fillStyle = '#10b981';
+            ctx.fillRect(j * GRID_SIZE + 10, i * GRID_SIZE + 10, GRID_SIZE - 20, GRID_SIZE - 20);
+            ctx.strokeStyle = '#065f46';
+            ctx.strokeRect(j * GRID_SIZE + 10, i * GRID_SIZE + 10, GRID_SIZE - 20, GRID_SIZE - 20);
+          }
+        }
+      }
+    }
+
+    // 繪製玩家 (程式生成炸彈超人)
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(player.x * GRID_SIZE + GRID_SIZE / 2, player.y * GRID_SIZE + GRID_SIZE / 2);
+      ctx.fillStyle = '#8b5e3c';
+      ctx.beginPath();
+      ctx.arc(0, 0, player.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#4a2c0d';
+      ctx.stroke();
+      ctx.fillStyle = '#10b981';
+      ctx.beginPath();
+      ctx.arc(-8, -5, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(-8, -5, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#10b981';
+      ctx.beginPath();
+      ctx.arc(8, -5, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(8, -5, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(0, 2, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.arc(0, 10, 8, 0, Math.PI, false);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 繪製敵人 (添加五官)
+    function drawEnemies() {
+      ctx.fillStyle = '#ef4444';
+      enemies.forEach(enemy => {
+        ctx.save();
+        ctx.translate(enemy.x * GRID_SIZE + GRID_SIZE / 2, enemy.y * GRID_SIZE + GRID_SIZE / 2);
+        ctx.beginPath();
+        ctx.arc(0, 0, 20, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#991b1b';
+        ctx.stroke();
+        // 眼睛
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(-6, -5, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(6, -5, 4, 0, Math.PI * 2);
+        ctx.fill();
+        // 嘴巴
+        ctx.fillStyle = '#dc2626';
+        ctx.beginPath();
+        ctx.arc(0, 5, 6, 0, Math.PI, false);
+        ctx.fill();
+        ctx.restore();
+        if (enemy.x === player.x && enemy.y === player.y) {
+          gameOver.style.display = 'block';
+          finalScore.textContent = score;
+          gameRunning = false;
+        }
+      });
+    }
+
+    // 繪製炸彈
+    function drawBombs() {
+      bombs.forEach(bomb => {
+        if (bombImage.complete && bombImage.naturalWidth > 0) {
+          ctx.drawImage(bombImage, bomb.x * GRID_SIZE + 5, bomb.y * GRID_SIZE + 5, GRID_SIZE - 10, GRID_SIZE - 10);
+        } else {
+          ctx.fillStyle = '#111827';
+          ctx.beginPath();
+          ctx.arc(bomb.x * GRID_SIZE + GRID_SIZE / 2, bomb.y * GRID_SIZE + GRID_SIZE / 2, 20, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#f87171';
+          ctx.beginPath();
+          ctx.arc(bomb.x * GRID_SIZE + GRID_SIZE / 2, bomb.y * GRID_SIZE + GRID_SIZE / 4, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+
+    // 繪製爆炸
+    function drawExplosions() {
+      explosions.forEach(ex => {
+        ctx.fillStyle = `rgba(239, 68, 68, ${0.8 - (Date.now() % 500) / 1000})`;
+        ctx.fillRect(ex.x * GRID_SIZE, ex.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+        ctx.strokeStyle = '#f97316';
+        ctx.strokeRect(ex.x * GRID_SIZE + 5, ex.y * GRID_SIZE + 5, GRID_SIZE - 10, GRID_SIZE - 10);
+      });
+    }
+
+    // 繪製分數和關卡
+    function drawScore() {
+      scoreElement.textContent = score;
+      levelElement.textContent = level + 1;
+    }
+
+    // 更新遊戲
+    function update() {
+      if (gameRunning) {
+        drawMap();
+        drawEnemies();
+        drawBombs();
+        drawExplosions();
+        drawPlayer();
+        drawScore();
+        const currentTime = Date.now();
+        if (currentTime - lastEnemyMove >= ENEMY_MOVE_INTERVAL) {
+          moveEnemies();
+          lastEnemyMove = currentTime;
+        }
+        checkGem();
+        requestAnimationFrame(update);
+      }
+    }
+
+    // 移動敵人
+    function moveEnemies() {
+      enemies.forEach(enemy => {
+        const directions = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+        const dir = directions[Math.floor(Math.random() * 4)];
+        const newX = enemy.x + dir.x;
+        const newY = enemy.y + dir.y;
+        if (newX >= 0 && newX < COLS && newY >= 0 && newY < ROWS && map[newY][newX] === EMPTY) {
+          enemy.x = newX;
+          enemy.y = newY;
+        }
+      });
+    }
+
+    // 檢查綠色寶石
+    function checkGem() {
+      if (map[player.y][player.x] === GEM && !gemCollected) {
+        gemCollected = true;
+        gameWin.style.display = 'block';
+        finalScoreWin.textContent = score;
+      }
+    }
+
+    // 檢查炸彈碰撞
+    function isBombAt(x, y) {
+      return bombs.some(bomb => bomb.x === x && bomb.y === y);
+    }
+
+    // 檢查敵人碰撞
+    function isEnemyAt(x, y) {
+      return enemies.some(enemy => enemy.x === x && enemy.y === y);
+    }
+
+    // 處理玩家移動和放置炸彈
+    document.addEventListener('keydown', (e) => {
+      if (gameRunning) {
+        let newX = player.x;
+        let newY = player.y;
+        if (e.key === 'w' || e.key === 'ArrowUp') newY--;
+        if (e.key === 's' || e.key === 'ArrowDown') newY++;
+        if (e.key === 'a' || e.key === 'ArrowLeft') newX--;
+        if (e.key === 'd' || e.key === 'ArrowRight') newX++;
+        if (newX >= 0 && newX < COLS && newY >= 0 && newY < ROWS && map[newY][newX] === EMPTY && !isBombAt(newX, newY) && !isEnemyAt(newX, newY)) {
+          player.x = newX;
+          player.y = newY;
+        }
+        if (e.key === ' ' && !isBombAt(player.x, player.y)) {
+          bombs.push({ x: player.x, y: player.y, timer: 3000 });
+          setTimeout(() => explode(bombs.shift()), 3000);
+        }
+      }
+    });
+
+    // 炸彈爆炸
+    function explode(bomb) {
+      if (!gameRunning) return;
+      let explosion = [
+        { x: bomb.x, y: bomb.y },
+        { x: bomb.x + 1, y: bomb.y },
+        { x: bomb.x - 1, y: bomb.y },
+        { x: bomb.x, y: bomb.y + 1 },
+        { x: bomb.x, y: bomb.y - 1 }
+      ];
+      let bricksDestroyed = 0;
+      let enemiesDestroyed = 0;
+      explosion.forEach(ex => {
+        if (ex.x >= 0 && ex.x < COLS && ex.y >= 0 && ex.y < ROWS) {
+          if (map[ex.y][ex.x] === BRICK) {
+            map[ex.y][ex.x] = EMPTY;
+            bricksDestroyed++;
+          } else if (map[ex.y][ex.x] === GEM && !gemCollected) {
+            gameLose.style.display = 'block';
+            finalScoreLose.textContent = score;
+            gameRunning = false;
+          }
+          explosions.push(ex);
+          if (ex.x === player.x && ex.y === player.y) {
+            gameOver.style.display = 'block';
+            finalScore.textContent = score;
+            gameRunning = false;
+          }
+          // 檢查並移除被炸死的敵人
+          enemies = enemies.filter(enemy => {
+            if (enemy.x === ex.x && enemy.y === ex.y) {
+              enemiesDestroyed++;
+              return false;
+            }
+            return true;
+          });
+        }
+      });
+      score += bricksDestroyed * 100 + enemiesDestroyed * 200;
+      setTimeout(() => {
+        explosions = explosions.filter(ex => !explosion.includes(ex));
+      }, 500);
+    }
+
+    // 重新開始遊戲
+    function restartGame() {
+      level = 0;
+      map = levels[level];
+      player = { x: 1, y: 1, size: GRID_SIZE - 10 };
+      bombs = [];
+      explosions = [];
+      enemies = [];
+      score = 0;
+      gemCollected = false;
+      gameRunning = true;
+      lastEnemyMove = 0;
+      gameOver.style.display = 'none';
+      gameWin.style.display = 'none';
+      gameLose.style.display = 'none';
+      initEnemies();
+      update();
+    }
+
+    // 下一關
+    function nextLevel() {
+      if (level < levels.length - 1) {
+        level++;
+        map = levels[level];
+        player = { x: 1, y: 1, size: GRID_SIZE - 10 };
+        bombs = [];
+        explosions = [];
+        enemies = [];
+        gemCollected = false;
+        gameRunning = true;
+        lastEnemyMove = 0;
+        gameWin.style.display = 'none';
+        initEnemies();
+        update();
+      } else {
+        alert('所有關卡已完成！');
+        restartGame();
+      }
+    }
+
+    // 啟動遊戲
+    initEnemies();
+    update();
+  </script>
+</body>
+</html>
